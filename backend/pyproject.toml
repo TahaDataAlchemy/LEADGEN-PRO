@@ -8,6 +8,7 @@ dependencies = [
     "anthropic>=0.97.0",
     "apscheduler>=3.11.2",
     "fastapi>=0.136.1",
+    "groq>=1.2.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.14.0",
     "python-dotenv>=1.2.2",
