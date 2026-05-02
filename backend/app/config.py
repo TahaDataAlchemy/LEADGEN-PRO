@@ -6,7 +6,9 @@ class Settings(BaseSettings):
     REDIS_URL: str
     GROQ_API_KEY: str
     SERPER_API_KEY: str
+    HUNTER_API_KEY:str
     FRONTEND_URL: str = "http://localhost:3000"
+
 
     class Config:
         env_file = ".env"
