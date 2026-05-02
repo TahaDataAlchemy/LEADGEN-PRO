@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
 from app.redis_client import test_redis_connection
+from app.routers.conversation import router as conversations_router
 from groq import Groq
 from supabase import create_client
 import uvicorn
@@ -11,7 +12,6 @@ import uvicorn
 def test_supabase_connection() -> bool:
     try:
         client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-        # simple query to confirm connection is live
         client.table("companies").select("id").limit(1).execute()
         return True
     except Exception as e:
@@ -62,6 +62,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LEADGEN Pro API", version="1.0.0", lifespan=lifespan)
 
+# middleware first
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
@@ -69,6 +70,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# routers after middleware
+app.include_router(conversations_router)
 
 
 @app.get("/")
