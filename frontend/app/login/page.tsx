@@ -8,67 +8,149 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
   const router = useRouter()
 
-  const handleSignUp = async () => {
+  const handleSubmit = async () => {
+    if (!email || !password) return
     setLoading(true)
-    const { error } = await supabase.auth.signUp({ email, password })
-    if (error) setMessage(error.message)
-    else setMessage('Check your email to confirm signup')
+    setMessage('')
+
+    if (mode === 'login') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) setMessage(error.message)
+      else router.push('/chat')
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password })
+      if (error) setMessage(error.message)
+      else setMessage('Check your email to confirm your account.')
+    }
     setLoading(false)
   }
 
-  const handleLogin = async () => {
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setMessage(error.message)
-      setLoading(false)
-    } else {
-      router.push('/dashboard')
-    }
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white p-8 rounded-lg shadow-sm border w-96">
-        <h1 className="text-xl font-semibold text-gray-900 mb-1">LeadGen Pro</h1>
-        <p className="text-sm text-gray-500 mb-6">AI lead intelligence platform</p>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--bg)',
+      padding: '20px'
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: '380px',
+      }}>
+        {/* logo */}
+        <div style={{ marginBottom: '32px' }}>
+          <div style={{
+            fontSize: '11px',
+            letterSpacing: '0.15em',
+            color: 'var(--accent)',
+            textTransform: 'uppercase',
+            marginBottom: '8px',
+            fontWeight: 600
+          }}>
+            LeadGen Pro
+          </div>
+          <h1 style={{
+            fontSize: '24px',
+            fontWeight: 600,
+            color: 'var(--text)',
+            margin: 0
+          }}>
+            {mode === 'login' ? 'Welcome back' : 'Create account'}
+          </h1>
+          <p style={{
+            color: 'var(--text-2)',
+            fontSize: '14px',
+            marginTop: '6px'
+          }}>
+            AI-powered lead intelligence platform
+          </p>
+        </div>
 
-        <div className="flex flex-col gap-3">
+        {/* form */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <input
             type="email"
-            placeholder="Email"
+            placeholder="Email address"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            style={{
+              background: 'var(--bg-2)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '11px 14px',
+              color: 'var(--text)',
+              fontSize: '14px',
+              outline: 'none',
+              width: '100%'
+            }}
           />
           <input
             type="password"
             placeholder="Password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            style={{
+              background: 'var(--bg-2)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '11px 14px',
+              color: 'var(--text)',
+              fontSize: '14px',
+              outline: 'none',
+              width: '100%'
+            }}
           />
           <button
-            onClick={handleLogin}
+            onClick={handleSubmit}
             disabled={loading}
-            className="w-full bg-blue-600 text-white text-sm py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            style={{
+              background: 'var(--accent)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '11px',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.6 : 1,
+              marginTop: '4px'
+            }}
           >
-            {loading ? 'Loading...' : 'Login'}
-          </button>
-          <button
-            onClick={handleSignUp}
-            disabled={loading}
-            className="w-full border text-sm py-2 rounded-md hover:bg-gray-50 disabled:opacity-50"
-          >
-            Create account
+            {loading ? 'Loading...' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </div>
 
         {message && (
-          <p className="mt-4 text-sm text-gray-600 text-center">{message}</p>
+          <p style={{
+            marginTop: '12px',
+            fontSize: '13px',
+            color: message.includes('Check') ? 'var(--green)' : 'var(--red)',
+            textAlign: 'center'
+          }}>
+            {message}
+          </p>
         )}
+
+        <p style={{
+          marginTop: '20px',
+          fontSize: '13px',
+          color: 'var(--text-2)',
+          textAlign: 'center'
+        }}>
+          {mode === 'login' ? "Don't have an account? " : "Already have an account? "}
+          <span
+            onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+            style={{ color: 'var(--accent)', cursor: 'pointer' }}
+          >
+            {mode === 'login' ? 'Sign up' : 'Sign in'}
+          </span>
+        </p>
       </div>
     </div>
   )
