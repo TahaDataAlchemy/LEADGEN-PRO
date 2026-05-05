@@ -1,10 +1,8 @@
-from groq import Groq
-from app.config import settings
+from app.llm_client import client, MODEL
 
 async def llm_groq():
-    client = Groq(api_key=settings.GROQ_API_KEY)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=MODEL,
         messages=[{"role": "user", "content": "Say hello in one sentence."}],
         max_tokens=50
     )

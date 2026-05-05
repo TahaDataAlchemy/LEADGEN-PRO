@@ -1,9 +1,6 @@
-from groq import Groq
-from app.config import settings
 from app.database import supabase
+from app.llm_client import client, MODEL
 import json
-
-client = Groq(api_key=settings.GROQ_API_KEY)
 
 def generate_title_and_suggestions(conversation_id: str, messages: list[dict]):
     """
@@ -20,7 +17,7 @@ def generate_title_and_suggestions(conversation_id: str, messages: list[dict]):
     ])
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=MODEL,
         temperature=0.5,
         messages=[
             {
@@ -73,7 +70,7 @@ def generate_title_only(conversation_id: str, messages: list[dict]):
         return
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=MODEL,
         temperature=0.3,
         messages=[
             {

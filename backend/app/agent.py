@@ -1,12 +1,42 @@
-from groq import Groq
-from app.config import settings
 from app.cache_memory import get_conversation_history, save_conversation_history
 from app.tools.registry import TOOLS, AVAILABLE_TOOLS
 from app.intent_parser_prompt import AGENT_SYSTEM_PROMPT
+from app.llm_client import client, MODEL, BadRequestError
 import json
 
-client = Groq(api_key=settings.GROQ_API_KEY)
-MODEL = "llama-3.3-70b-versatile"
+TOOL_CALL_RETRY_PROMPT = (
+    "Important: if you use a tool, you must use the native tool-calling interface "
+    "provided by the API. Do not output XML-like or text-based function syntax such as "
+    "<function=tool_name>{...}</function>. Do not write JSON for a tool call in normal text."
+)
+
+
+def _create_completion(messages: list[dict], use_tools: bool = True):
+    request = {
+        "model": MODEL,
+        "temperature": 0.1,
+        "messages": messages,
+        "max_tokens": 1024 if use_tools else 512,
+    }
+
+    if use_tools:
+        request["tools"] = TOOLS
+        request["tool_choice"] = "auto"
+    else:
+        request["tool_choice"] = "none"
+
+    try:
+        return client.chat.completions.create(**request)
+    except BadRequestError as e:
+        error_text = str(e)
+        if use_tools and "tool_use_failed" in error_text:
+            retry_messages = [
+                {"role": "system", "content": TOOL_CALL_RETRY_PROMPT},
+                *messages
+            ]
+            request["messages"] = retry_messages
+            return client.chat.completions.create(**request)
+        raise
 
 
 def run_agent(
@@ -36,14 +66,7 @@ def run_agent(
         iteration += 1
 
         # ── Reason ────────────────────────────────────────
-        response = client.chat.completions.create(
-            model=MODEL,
-            temperature=0.3,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            max_tokens=1024
-        )
+        response = _create_completion(messages, use_tools=True)
 
         response_message = response.choices[0].message
         tool_calls = response_message.tool_calls
@@ -72,11 +95,14 @@ def run_agent(
                     tool_result = AVAILABLE_TOOLS[fn_name](**fn_args)
                     tool_status = "success"
 
-                    # check if dashboard navigation needed
-                    if fn_name == "filter_dashboard":
-                        if tool_result.get("show_on_dashboard"):
-                            navigate_to = "/dashboard"
-                            dashboard_filters = tool_result.get("filters_applied", {})
+                    # ── special handling for show_dashboard ──
+                    # this tool signals frontend to navigate
+                    # extract the signal here so it reaches
+                    # the final return value
+                    if fn_name == "show_dashboard":
+                        if tool_result.get("navigate_to"):
+                            navigate_to = tool_result["navigate_to"]
+                            dashboard_filters = tool_result.get("filters", {})
 
                 except Exception as e:
                     tool_result = {"error": str(e)}
@@ -90,14 +116,11 @@ def run_agent(
                 "content": json.dumps(tool_result)
             })
 
+        # loop continues → agent sees tool result → reasons again
+
     # ── safety net ─────────────────────────────────────────
     if final_reply is None:
-        forced = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tool_choice="none",
-            max_tokens=512
-        )
+        forced = _create_completion(messages, use_tools=False)
         final_reply = forced.choices[0].message.content or "Something went wrong."
 
     # ── save updated history to Redis ─────────────────────

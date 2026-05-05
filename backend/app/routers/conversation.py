@@ -135,13 +135,16 @@ def delete_conversation(conversation_id: str):
 
 @router.get("/{conversation_id}/suggestions")
 def get_suggestions(conversation_id: str):
-    result = supabase\
-        .table("conversation_summaries")\
-        .select("suggested_questions")\
-        .eq("conversation_id", conversation_id)\
-        .single()\
-        .execute()
+    try:
+        result = supabase\
+            .table("conversation_summaries")\
+            .select("suggested_questions")\
+            .eq("conversation_id", conversation_id)\
+            .execute()                          # ← remove .single()
 
-    if result.data:
-        return {"suggestions": result.data.get("suggested_questions", [])}
-    return {"suggestions": []}
+        if result.data and len(result.data) > 0:
+            return {"suggestions": result.data[0].get("suggested_questions", [])}
+        return {"suggestions": []}
+    except Exception as e:
+        print(f"Suggestions error: {e}")
+        return {"suggestions": []}
