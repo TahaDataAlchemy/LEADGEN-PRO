@@ -1,13 +1,11 @@
 import httpx
 from bs4 import BeautifulSoup
-from groq import Groq
 from app.config import settings
 from app.database import supabase
+from app.llm_client import client, MODEL
 import json
 import re
 from urllib.parse import urlparse
-
-groq_client = Groq(api_key=settings.GROQ_API_KEY)
 
 # ── known tech stack fingerprints ─────────────────────────
 TECH_FINGERPRINTS = {
@@ -240,6 +238,85 @@ def get_hunter_data(domain: str) -> dict:
 
 # ── step 5: ai estimation for employees and revenue ───────
 
+# def ai_estimate(
+#     company_name: str,
+#     description: str,
+#     snippet: str,
+#     industry: str,
+#     funding: str | None
+# ) -> dict:
+#     schema = {
+#         "type": "object",
+#         "properties": {
+#             "employee_count": {
+#                 "type": ["integer", "null"]
+#             },
+#             "employee_range": {
+#                 "type": "string"
+#             },
+#             "revenue_estimate": {
+#                 "type": "string"
+#             },
+#             "company_type": {
+#                 "type": "string"
+#             }
+#         },
+#         "required": [
+#             "employee_count",
+#             "employee_range",
+#             "revenue_estimate",
+#             "company_type"
+#         ],
+#         "additionalProperties": False
+#     }
+
+#     prompt = f"""
+# You are a B2B company analyst. Based on the information below estimate the company details.
+
+# Company: {company_name}
+# Industry: {industry}
+# Description: {description or snippet}
+# Funding info: {funding or "unknown"}
+
+# Return ONLY valid JSON, no markdown, no explanation:
+# {{
+#   "employee_count": <integer best estimate or null>,
+#   "employee_range": "<10-50|51-100|101-200|201-500|500+>",
+#   "revenue_estimate": "<$XM - $YM ARR or unknown>",
+#   "company_type": "<B2B SaaS|HealthTech|Fintech|Logistics|Other>"
+# }}
+# """
+#     try:
+#         response = client.chat.completions.create(
+#             model=MODEL,
+#             temperature=0.1,
+#             messages=[{"role": "user", "content": prompt}],
+#             response_format={
+#                 "type": "json_schema",
+#                 "json_schema": {
+#                     "name": "company_estimate",
+#                     "strict": True,
+#                     "schema": schema
+#                 }
+#             },
+#             max_tokens=150
+#         )
+#         raw = (response.choices[0].message.content or "").strip()
+
+#         if not raw:
+#             raise ValueError("Empty response from AI estimation model")
+
+#         # Fallback cleanup in case provider returns fenced JSON anyway.
+#         raw = re.sub(r"```json|```", "", raw).strip()
+#         return json.loads(raw)
+#     except Exception as e:
+#         print(f"  AI estimation error: {e}")
+#         return {
+#             "employee_count": None,
+#             "employee_range": "unknown",
+#             "revenue_estimate": "unknown",
+#             "company_type": industry
+#         }
 def ai_estimate(
     company_name: str,
     description: str,
@@ -247,35 +324,82 @@ def ai_estimate(
     industry: str,
     funding: str | None
 ) -> dict:
+
     prompt = f"""
-You are a B2B company analyst. Based on the information below estimate the company details.
+You are a B2B company analyst. Estimate the company details below.
 
 Company: {company_name}
 Industry: {industry}
 Description: {description or snippet}
-Funding info: {funding or "unknown"}
+Funding: {funding or "unknown"}
 
-Return ONLY valid JSON, no markdown, no explanation:
+Return ONLY this JSON with no extra text:
 {{
-  "employee_count": <integer best estimate or null>,
-  "employee_range": "<10-50|51-100|101-200|201-500|500+>",
-  "revenue_estimate": "<$XM - $YM ARR or unknown>",
-  "company_type": "<B2B SaaS|HealthTech|Fintech|Logistics|Other>"
+  "employee_count": <integer or null>,
+  "employee_range": "<10-50 or 51-100 or 101-200 or 201-500 or 500+ or unknown>",
+  "revenue_estimate": "<e.g. $1M-$5M ARR or unknown>",
+  "company_type": "<B2B SaaS or Fintech or HealthTech or Logistics or Other>"
 }}
 """
+
     try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
+        response = client.chat.completions.create(
+            model=MODEL,
+            temperature=0.2,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
+            max_tokens=400
         )
-        raw = response.choices[0].message.content.strip()
-        # strip markdown backticks if model wraps output
-        raw = re.sub(r"```json|```", "", raw).strip()
-        return json.loads(raw)
+
+        raw = (response.choices[0].message.content or "").strip()
+
+        if not raw:
+            raise ValueError("Empty LLM response")
+
+        # ── STEP 1: Extract JSON safely ─────────────────────
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            raise ValueError(f"No JSON found: {raw}")
+
+        data = json.loads(match.group())
+
+        # ── STEP 2: Normalize fields ───────────────────────
+
+        # employee_count
+        emp = data.get("employee_count")
+        if isinstance(emp, str):
+            emp = int(re.sub(r"\D", "", emp)) if re.search(r"\d", emp) else None
+        elif not isinstance(emp, int):
+            emp = None
+
+        # employee_range
+        valid_ranges = ["10-50", "51-100", "101-200", "201-500", "500+"]
+        emp_range = str(data.get("employee_range", "")).strip()
+
+        if not any(r in emp_range for r in valid_ranges):
+            emp_range = "unknown"
+
+        # revenue_estimate
+        revenue = str(data.get("revenue_estimate", "")).strip()
+        if not revenue or "unknown" in revenue.lower():
+            revenue = "unknown"
+
+        # company_type
+        valid_types = ["B2B SaaS", "Fintech", "HealthTech", "Logistics"]
+        ctype = str(data.get("company_type", "")).strip()
+
+        if not any(t.lower() in ctype.lower() for t in valid_types):
+            ctype = "Other"
+
+        return {
+            "employee_count": emp,
+            "employee_range": emp_range,
+            "revenue_estimate": revenue,
+            "company_type": ctype
+        }
+
     except Exception as e:
-        print(f"  AI estimation error: {e}")
+        print(f"  AI estimation fallback: {e}")
+
         return {
             "employee_count": None,
             "employee_range": "unknown",
@@ -427,6 +551,7 @@ def scrape_leads(
             # step 9 — build company record
             company = {
                 "domain": domain,
+                "url": f"https://{domain}",
                 "name": company_name,
                 "industry": industry,
                 "location": location,
@@ -442,6 +567,14 @@ def scrape_leads(
 
             if db_result.data:
                 saved_company = db_result.data[0]
+                rev_min, rev_max = parse_revenue(estimates.get("revenue_estimate"))
+                supabase.table("enrichments").insert({
+                    "company_id": saved_company["id"],
+                    "revenue_estimate": estimates.get("revenue_estimate"),
+                    "revenue_min_usd": rev_min,
+                    "revenue_max_usd": rev_max,
+                    "funding_stage": funding or "unknown",
+                }).execute()
 
                 # attach extra enrichment fields to response
                 # these move to enrichments table in Phase 3
@@ -476,3 +609,21 @@ def scrape_leads(
             "max_employees": max_employees
         }
     }
+
+
+def parse_revenue(revenue_str: str) -> tuple[int | None, int | None]:
+    """
+    Converts "$5M-$10M ARR" to (5000000, 10000000)
+    """
+    if not revenue_str or revenue_str == "unknown":
+        return None, None
+    
+    numbers = re.findall(r'\d+\.?\d*', revenue_str)
+    multiplier = 1_000_000 if 'M' in revenue_str.upper() else 1_000
+    
+    if len(numbers) >= 2:
+        return int(float(numbers[0]) * multiplier), int(float(numbers[1]) * multiplier)
+    elif len(numbers) == 1:
+        val = int(float(numbers[0]) * multiplier)
+        return val, val
+    return None, None
