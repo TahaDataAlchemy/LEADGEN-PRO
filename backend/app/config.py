@@ -1,4 +1,26 @@
+import os
+
 from pydantic_settings import BaseSettings
+
+
+def _clear_broken_local_proxy_env() -> None:
+    broken_targets = ("127.0.0.1:9", "localhost:9")
+    proxy_keys = [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ]
+
+    for key in proxy_keys:
+        value = os.environ.get(key, "")
+        if any(target in value for target in broken_targets):
+            os.environ.pop(key, None)
+
+
+_clear_broken_local_proxy_env()
 
 class Settings(BaseSettings):
     SUPABASE_URL: str
