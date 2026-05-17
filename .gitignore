@@ -2,6 +2,9 @@
 backend/__pycache__/
 backend/.env
 backend/venv/
+backend/.venv/
+**/__pycache__/
+*.pyc
 
 # Node
 frontend/node_modules/
@@ -10,5 +13,8 @@ frontend/.next/
 
 # General
 .DS_Store
-*.pyc
 .env
+backend/*.log
+backend/*.out.log
+backend/*.err.log
+test/
